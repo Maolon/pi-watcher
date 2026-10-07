@@ -1,0 +1,103 @@
+{
+  "name": "@maolon/pi-watcher",
+  "version": "0.1.0",
+  "description": "Watch long-running Pi tasks without babysitting: deterministic task monitoring, optional semantic review, and relay-delivered wakes only when something needs the host.",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-extension",
+    "pi-coding-agent",
+    "watcher",
+    "monitoring",
+    "long-running-tasks",
+    "agents"
+  ],
+  "homepage": "https://github.com/Maolon/pi-watcher#readme",
+  "bugs": {
+    "url": "https://github.com/Maolon/pi-watcher/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Maolon/pi-watcher.git"
+  },
+  "license": "MIT",
+  "author": "Maolon",
+  "type": "module",
+  "main": "./dist/pi-extension.js",
+  "types": "./dist/pi-extension.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/pi-extension.d.ts",
+      "import": "./dist/pi-extension.js",
+      "default": "./dist/pi-extension.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "pi-watcher": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "pi": {
+    "extensions": [
+      "./dist/pi-extension.js"
+    ]
+  },
+  "engines": {
+    "node": ">=22.16.0"
+  },
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && node scripts/copy-assets.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/jev/*.test.ts tests/storage/*.test.ts tests/source/*.test.ts tests/relay/*.test.ts tests/engine/*.test.ts tests/*.test.ts",
+    "test:unit": "tsx --test tests/storage/*.test.ts tests/source/*.test.ts tests/relay/*.test.ts tests/engine/*.test.ts",
+    "test:jev": "tsx --test tests/jev/*.test.ts",
+    "test:jev:unit": "tsx --test tests/jev/sanitizer.test.ts tests/jev/mock-judge.test.ts tests/jev/client-unit.test.ts",
+    "test:jev:live": "tsx --test tests/jev/client-live.test.ts",
+    "test:package": "node scripts/package-smoke.mjs",
+    "qualify": "tsx src/cli.ts qualify",
+    "doctor": "tsx src/cli.ts doctor",
+    "demo": "tsx src/cli.ts demo",
+    "prepublishOnly": "npm run typecheck && npm run build && npm run test:package"
+  },
+  "dependencies": {
+    "@maolon/pi-relay": "^0.2.0",
+    "better-sqlite3": "13.0.3",
+    "fs-ext": "2.1.1"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "typebox": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^22.20.4",
+    "tsx": "^4.23.13",
+    "typebox": "^1.3.34",
+    "typescript": "^5.7.3"
+  },
+  "allowScripts": {
+    "better-sqlite3@13.0.3": true
+  }
+}

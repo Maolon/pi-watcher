@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "status": "design-initial-values-not-performance-results",
+  "semanticMode": "shadow",
+  "jevConsentDefault": false,
+  "model": "jev-1.13.0",
+  "questionSet": "watcher-q1",
+  "thresholds": {
+    "contextSufficient": 0.75,
+    "needsHostDecision": 0.85,
+    "unresolvedBlocker": 0.85,
+    "repeating": 0.9,
+    "claimConflict": 0.85
+  },
+  "scheduler": {
+    "pollMinMs": 30000,
+    "pollMaxMs": 300000,
+    "maxSilenceMs": 900000,
+    "maxJevInFlight": 2,
+    "maxProbeInFlight": 4,
+    "maxJudgeRequestsPerWatchDay": 200,
+    "maxJudgeRequestsPerRootDay": 2000,
+    "judgeTimeoutMs": 10000,
+    "maxJudgeAttempts": 3
+  },
+  "capacity": {
+    "maxActiveWatches": 32,
+    "maxGroupChildren": 16,
+    "maxEvidenceEvents": 16,
+    "stateMaxBytes": 24576,
+    "evidenceMaxBytes": 12288,
+    "maxProbesPerInspection": 1,
+    "maxProbesPerEpisode": 2,
+    "rootSoftBytes": 1073741824,
+    "rootHardBytes": 2147483648
+  },
+  "attention": {
+    "transport": "relay",
+    "defaultModelMode": "display",
+    "episodeCooldownMs": 60000,
+    "ttlMs": 120000,
+    "resultTtlMs": 86400000,
+    "maxRequestsPerEpisode": 1,
+    "batchSize": 1
+  },
+  "retention": {
+    "closedEvidenceDays": 7,
+    "closedStructuredDays": 30,
+    "retainOpenAndUnknown": true
+  },
+  "relayManaged": {
+    "requiredWireMinor": 2,
+    "dispatchCooldownMs": 60000,
+    "batchSize": 1,
+    "sourceScopeProofMaxMs": 1000,
+    "consumerGuardTimeoutMs": 1000,
+    "maximumEventAgeMs": 86400000,
+    "maximumEventTtlMs": 86400000,
+    "dedupRetentionDays": 30
+  }
+}

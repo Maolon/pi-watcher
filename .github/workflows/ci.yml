@@ -1,0 +1,43 @@
+name: CI
+on:
+  pull_request:
+    branches: [dev, main]
+  workflow_dispatch:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            node: '24'
+          - os: ubuntu-24.04
+            node: '22.16.0'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Install exact dependency graph without install scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Build native flock binding
+        run: npm rebuild fs-ext --foreground-scripts
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Offline tests (storage, sources, relay end to end, engine)
+        run: npm run test:unit
+      - name: Jev client tests (offline)
+        run: npm run test:jev:unit
+      - name: Integration
+        run: npx tsx --test tests/v1-integration.test.ts
+      - name: Build
+        run: npm run build
+      - name: Package smoke (pack, leak scan, clean install, load with plain Node)
+        run: npm run test:package
