@@ -146,7 +146,8 @@ degraded; they never mark the task as failed. The command text is stored as evid
 | `register` | Full spec: `run`, `group` (up to 16 members) and `obligation` targets |
 
 `/watcher` shows the panel; `/watcher ack <episodeId> <received|investigating|defer|resolved|dismiss> [until]`
-handles an episode locally; `/watcher jev` manages the optional semantic review (see below).
+handles an episode locally; `/watcher cancel [reason]` closes every active or paused watch of the current session
+(no watchId needed); `/watcher jev` manages the optional semantic review (see below).
 
 ### Exit markers for `exec_command`
 

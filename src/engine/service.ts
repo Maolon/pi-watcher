@@ -326,6 +326,34 @@ export class WatchService {
   }
 
   /**
+   * Local owner cancel (for the /watcher command only): close every active or paused watch of this owner
+   * session. Each close goes through control() with the watch's current controlRevision, so the scope
+   * advance, attention withdraw and episode supersede are identical to a per-watch close. A close that
+   * fails is reported per watch, never folded into success.
+   */
+  async closeAllForOwner(reason: string, actor: ActorContext): Promise<Json> {
+    const rows: WatchRow[] = [];
+    let cursor: string | undefined;
+    for (;;) {
+      const page = this.store.transaction(tx => tx.listWatches(actor.owner.sessionId, cursor, 200, ['active', 'paused']));
+      rows.push(...page);
+      if (page.length < 200) break;
+      cursor = page[page.length - 1].watchId;
+    }
+    const closed: Json[] = [];
+    const failed: Json[] = [];
+    for (const row of rows) {
+      try {
+        const r = await this.control(newId('cancel'), row.watchId, row.controlRevision, 'close', reason, actor) as Record<string, Json>;
+        closed.push({ watchId: row.watchId, previousLifecycle: row.lifecycle, withdrawn: Array.isArray(r.withdrawEventIds) ? r.withdrawEventIds.length : 0 });
+      } catch (e) {
+        failed.push({ watchId: row.watchId, code: (e as { code?: string }).code ?? 'ERROR', message: e instanceof Error ? e.message : String(e) });
+      }
+    }
+    return { closed, failed, reason };
+  }
+
+  /**
    * Layered withdrawal report (design 6.5): sourceFence for the scope advance and one entry
    * per affected route. "withdrawn" is claimed only when every route reports prevented
    * (I15); missing evidence stays pending/unknown, never success.
