@@ -194,13 +194,23 @@ const sessionDirOf = (sid: string): string =>
  * This session is the only process on its own root, so the single-writer invariant holds naturally; no primary/attached,
  * no failover; version skew (an old primary serving an old action surface) is structurally impossible.
  */
+/**
+ * Toast level for an attention notice. A clean success is informational; anything that needs a
+ * closer look (failure, cancellation, unknown exit, deadline, semantic candidate) or a broken
+ * relay wake leg stays a warning.
+ */
+export function attentionNotifyLevel(notice: Pick<AttentionNotice, 'reasonCode' | 'transport' | 'taskState'>): 'info' | 'warning' {
+  if (notice.transport === 'relay-failed') return 'warning';
+  return notice.reasonCode === 'task.terminal' && notice.taskState === 'succeeded' ? 'info' : 'warning';
+}
+
 class SessionBackend implements WatcherBackend {
   private closed = false;
 
   constructor(
     private readonly rt: WatcherRuntime,
     private readonly refreshWidget: () => void,
-    private readonly notifyUser: (text: string) => void,
+    private readonly notifyUser: (text: string, level: 'info' | 'warning') => void,
     private readonly sessionId: string
   ) {}
 
@@ -213,7 +223,7 @@ class SessionBackend implements WatcherBackend {
         : '';
     const text = `pi-watcher attention [${notice.reasonCode}] watch ${notice.watchId}: ${notice.summary}` + tail;
     if (!notice.ownerSession || notice.ownerSession === this.sessionId) {
-      try { this.notifyUser(text); } catch { /* display failure does not block */ }
+      try { this.notifyUser(text, attentionNotifyLevel(notice)); } catch { /* display failure does not block */ }
     }
   }
 
@@ -339,7 +349,7 @@ export default function watcherExtension(pi: PiExtensionAPI, options: WatcherExt
           } catch { /* display failure does not block the engine */ }
         }
       });
-      const be = new SessionBackend(rt, refreshWidget, text => { ctx.ui?.notify?.(text, 'warning'); }, primarySid);
+      const be = new SessionBackend(rt, refreshWidget, (text, level) => { ctx.ui?.notify?.(text, level); }, primarySid);
       attentionSink = n => be.handleAttention(n);
       if (sessionClosed) { be.close(); return; }
       backend = be;

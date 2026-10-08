@@ -4,7 +4,7 @@ import * as fsSync from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { flockSync } from 'fs-ext';
-import watcherExtension, { type PiExtensionAPI, type PiTool, type PiToolCallContext, type PiToolResultEvent, type PiToolCallEvent } from '../../src/pi-extension.js';
+import watcherExtension, { attentionNotifyLevel, type PiExtensionAPI, type PiTool, type PiToolCallContext, type PiToolResultEvent, type PiToolCallEvent } from '../../src/pi-extension.js';
 
 /** Captures the fake Pi runtime that gets registered. */
 class FakePi implements PiExtensionAPI {
@@ -321,6 +321,17 @@ test('extension: agent-file progress query via check and inspect returns latestO
   }
 });
 
+test('extension: attention toast level — success is info, everything else warning', () => {
+  assert.equal(attentionNotifyLevel({ reasonCode: 'task.terminal', taskState: 'succeeded', transport: 'local-display' }), 'info');
+  assert.equal(attentionNotifyLevel({ reasonCode: 'task.terminal', taskState: 'succeeded', transport: 'relay-managed' }), 'info');
+  assert.equal(attentionNotifyLevel({ reasonCode: 'task.terminal', taskState: 'succeeded', transport: 'relay-failed' }), 'warning');
+  assert.equal(attentionNotifyLevel({ reasonCode: 'task.terminal', taskState: 'cancelled', transport: 'local-display' }), 'warning');
+  assert.equal(attentionNotifyLevel({ reasonCode: 'task.failed', taskState: 'failed', transport: 'local-display' }), 'warning');
+  assert.equal(attentionNotifyLevel({ reasonCode: 'task.exited-unknown', taskState: 'unknown', transport: 'local-display' }), 'warning');
+  assert.equal(attentionNotifyLevel({ reasonCode: 'deadline.exceeded', transport: 'local-display' }), 'warning');
+  assert.equal(attentionNotifyLevel({ reasonCode: 'task.terminal', transport: 'local-display' }), 'warning');
+});
+
 test('extension: attention reaches sessions — strict session isolation (primary vs attached)', async () => {
   const fs = await import('node:fs/promises');
   const os = await import('node:os');
@@ -332,11 +343,12 @@ test('extension: attention reaches sessions — strict session isolation (primar
   await fs.writeFile(logFileA, 'work\n__EXEC_EXIT__:0\n');
 
   const notifyA: string[] = [];
+  const levelsA = new Map<string, string | undefined>();
   const piA = new FakePi();
   watcherExtension(piA, { pollTickMs: 50, relay: false });
   const ctxA: PiToolCallContext = {
     sessionId: 'sess-att-a', cwd: tmp, signal: new AbortController().signal,
-    ui: { notify: (m: string) => { notifyA.push(m); } }
+    ui: { notify: (m: string, level?: string) => { notifyA.push(m); levelsA.set(m, level); } }
   };
   for (const h of piA.startHandlers) await h({}, ctxA);
 
@@ -359,6 +371,8 @@ test('extension: attention reaches sessions — strict session isolation (primar
     }
     assert.ok(notifyA.some(m => m.includes('task.terminal')), `primary session must be notified of terminal attention: ${JSON.stringify(notifyA)}`);
     assert.ok(notifyA.some(m => m.includes(watchIdA)), 'notice must reference the watchId');
+    const terminalA = notifyA.find(m => m.includes('task.terminal') && m.includes(watchIdA));
+    assert.equal(levelsA.get(terminalA!), 'info', 'a succeeded terminal notice must toast at info, not warning');
 
     // A second session attaches to the same root: it should not receive Session A's attention notification (strict isolation)
     const notifyB: string[] = [];

@@ -52,6 +52,8 @@ export interface AttentionNotice {
   relayError?: string;
   /** Deadline until which the envelope is still valid (ms epoch) */
   validUntil: number;
+  /** Observed task state for terminal-fact notices (display layer picks the toast level from it) */
+  taskState?: string;
 }
 
 /** Accepted-judgment-complete notification (display-layer notice; judge review must be visible) */
@@ -324,7 +326,7 @@ export class WatchEngine {
       }, now);
       if (episodeId) {
         produced.episodes.push(episodeId);
-        await this.publishEpisodeAttention(watchId, row, episodeId, kind, `${snapshot.taskState}${snapshot.exitCode !== undefined && snapshot.exitCode !== null ? ` exitCode=${snapshot.exitCode}` : ''}: ${snapshot.summary ?? 'no summary'}`, now);
+        await this.publishEpisodeAttention(watchId, row, episodeId, kind, `${snapshot.taskState}${snapshot.exitCode !== undefined && snapshot.exitCode !== null ? ` exitCode=${snapshot.exitCode}` : ''}: ${snapshot.summary ?? 'no summary'}`, now, undefined, snapshot.taskState);
       }
 
       const resultId = `result-${watchId}-${row.generation}-${snapshot.lastSourceSeq ?? 0}`;
@@ -823,7 +825,8 @@ export class WatchEngine {
     reasonCode: string,
     summary: string,
     now: number,
-    probability?: number
+    probability?: number,
+    taskState?: string
   ): Promise<void> {
     const envelopeId = newId('att');
     const envelope = {
@@ -888,7 +891,8 @@ export class WatchEngine {
         summary,
         transport,
         relayError,
-        validUntil: validUntilMs
+        validUntil: validUntilMs,
+        taskState
       });
     } catch { /* display-layer failure does not affect the engine */ }
   }
