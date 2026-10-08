@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-10-08
+
+### Added
+- `/watcher cancel [reason]` closes every active or paused watch of the current session, no watchId needed. Each close withdraws pending attentions and supersedes open episodes like a per-watch `close`; other sessions are untouched.
+
 ## [0.1.3] - 2026-10-08
 
 ### Changed
