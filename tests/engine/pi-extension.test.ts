@@ -730,3 +730,41 @@ test('extension: action=watch-file — agent-declared file registration, INVALID
     await fs.rm(tmp, { recursive: true, force: true });
   }
 });
+
+test('extension: /watcher cancel closes every active/paused watch of this session only, no watchId needed', async () => {
+  const fs = await import('node:fs/promises');
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'pw-ext-cancel-'));
+  const pi = new FakePi();
+  watcherExtension(pi, { pollTickMs: 50, relay: false });
+  const notes: Array<{ text: string; level?: string }> = [];
+  const ctx = await startSession(pi, tmp, 'sess-cancel');
+  ctx.ui = { notify: (text, level) => { notes.push({ text, level }); } };
+  const peer = await startSession(pi, tmp, 'sess-cancel-peer');
+  const cmd = pi.commands.find(c => c.name === 'watcher');
+  assert.ok(cmd);
+  try {
+    const a = await callTool(pi, ctx, { action: 'watch-file', requestId: 'c-a', path: path.join(tmp, 'a.log') });
+    const b = await callTool(pi, ctx, { action: 'watch-file', requestId: 'c-b', path: path.join(tmp, 'b.log') });
+    const p = await callTool(pi, peer, { action: 'watch-file', requestId: 'c-p', path: path.join(tmp, 'p.log') });
+    assert.equal(a.ok && b.ok && p.ok, true);
+    const bId = (b.value as { watchId: string }).watchId;
+    const paused = await callTool(pi, ctx, { action: 'pause', requestId: 'c-pause', watchId: bId, expectedControlRevision: 1, reason: 'test' });
+    assert.equal(paused.ok, true, JSON.stringify(paused));
+
+    await cmd.def.handler('cancel done with these', ctx);
+    assert.match(notes.at(-1)!.text, /closed 2 watch\(es\) in this session/);
+    assert.equal(notes.at(-1)!.level, 'info');
+
+    const after = await callTool(pi, ctx, { action: 'list' });
+    assert.equal((after.value as { watches: unknown[] }).watches.length, 0, JSON.stringify(after));
+    const peerAfter = await callTool(pi, peer, { action: 'list' });
+    assert.equal((peerAfter.value as { watches: unknown[] }).watches.length, 1, 'peer session watch untouched');
+
+    await cmd.def.handler('cancel', ctx);
+    assert.match(notes.at(-1)!.text, /no active or paused watch in this session/);
+  } finally {
+    for (const h of pi.shutdownHandlers) await h({}, ctx);
+    for (const h of pi.shutdownHandlers) await h({}, peer);
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+});

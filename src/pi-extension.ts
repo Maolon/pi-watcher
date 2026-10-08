@@ -169,6 +169,8 @@ interface WatcherBackend {
   toolCall(params: ToolParams, actor: ActorContext): Promise<string>;
   panel(actor: ActorContext): Promise<Json>;
   localAck(req: { requestId: string; episodeId: string; action: AckAction; note: string; until?: string }, actor: ActorContext): Promise<string>;
+  /** Local owner cancel: close every active/paused watch of this session. */
+  localCancelAll(reason: string, actor: ActorContext): Promise<string>;
   widgetLines(): string[];
   requestWidgetRefresh(): void;
   /** Diagnose and, if needed, self-heal the relay channel (closed after resume -> new audienceRef/scopeId) */
@@ -246,6 +248,10 @@ class SessionBackend implements WatcherBackend {
   async localAck(req: { requestId: string; episodeId: string; action: AckAction; note: string; until?: string }, actor: ActorContext): Promise<string> {
     return JSON.stringify(await toServiceResultAsync(req.requestId, () =>
       this.rt.service.ackEpisode(req.requestId, req.episodeId, req.action, req.note, req.until, actor)));
+  }
+
+  async localCancelAll(reason: string, actor: ActorContext): Promise<string> {
+    return JSON.stringify(await toServiceResultAsync(undefined, () => this.rt.service.closeAllForOwner(reason, actor)));
   }
 
   requestWidgetRefresh(): void {
@@ -641,7 +647,7 @@ export default function watcherExtension(pi: PiExtensionAPI, options: WatcherExt
   };
 
   pi.registerCommand('watcher', {
-    description: 'pi-watcher panel: watches, health, open issues, and why no attention was sent. /watcher ack <episodeId> <received|investigating|defer|resolved|dismiss> [until ISO] — local owner response. /watcher jev [status] | /watcher jev consent <on|off> — optional Jev semantic review',
+    description: 'pi-watcher panel: watches, health, open issues, and why no attention was sent. /watcher ack <episodeId> <received|investigating|defer|resolved|dismiss> [until ISO] — local owner response. /watcher cancel [reason...] — close every active/paused watch of this session. /watcher jev [status] | /watcher jev consent <on|off> — optional Jev semantic review',
     handler: async (args: string, ctx: PiToolCallContext) => {
       await ensureBackend(ctx);
       const be = backend;
@@ -689,6 +695,24 @@ export default function watcherExtension(pi: PiExtensionAPI, options: WatcherExt
         );
         const parsed = JSON.parse(result) as { ok?: boolean };
         ctx.ui?.notify?.(result, parsed.ok === false ? 'error' : 'info');
+        return;
+      }
+      if (argv[0] === 'cancel') {
+        // Local owner cancel (non-model path): close every active/paused watch of this session, no watchId needed
+        const reason = argv.slice(1).join(' ') || 'local owner cancel';
+        const result = await be.localCancelAll(reason, actorOf(ctx));
+        be.requestWidgetRefresh();
+        const parsed = JSON.parse(result) as { ok?: boolean; value?: { closed?: unknown[]; failed?: unknown[] } };
+        if (parsed.ok === false) {
+          ctx.ui?.notify?.(result, 'error');
+          return;
+        }
+        const closed = parsed.value?.closed?.length ?? 0;
+        const failed = parsed.value?.failed?.length ?? 0;
+        const head = closed === 0 && failed === 0
+          ? 'pi-watcher: no active or paused watch in this session'
+          : `pi-watcher: closed ${closed} watch(es) in this session` + (failed > 0 ? `, ${failed} failed` : '');
+        ctx.ui?.notify?.(failed > 0 ? `${head}\n${result}` : head, failed > 0 ? 'warning' : 'info');
         return;
       }
       const panel = await be.panel(actorOf(ctx));
