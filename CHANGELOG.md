@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-10-08
+
 ### Changed
 - Attention toasts follow the outcome: a succeeded `task.terminal` notice shows at `info`; failures, cancellations, unknown exits, deadlines, semantic candidates and failed relay wakes stay at `warning`.
 - Git flow: `dev` integration branch, release and hotfix PRs into `main` publish to npm.
