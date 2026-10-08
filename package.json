@@ -1,6 +1,6 @@
 {
   "name": "@maolon/pi-watcher",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Watch long-running Pi tasks without babysitting: deterministic task monitoring, optional semantic review, and relay-delivered wakes only when something needs the host.",
   "keywords": [
     "pi-package",

@@ -4,6 +4,11 @@ Watch long-running work from [Pi](https://pi.dev) without babysitting it. pi-wat
 training jobs, CI pipelines and deadlines from durable evidence. It keeps the session quiet while things progress
 and wakes the session (through [pi-relay](https://github.com/Maolon/pi-relay)) only when a fact needs a decision.
 
+For what patterns cannot see (a stalled run, a fix loop that keeps repeating, a log that claims success while
+showing errors), pi-watcher can optionally run a **semantic check with [Jev](https://typesafe.ai)**, TypeSafe's
+fast discriminative classifier, using the Jev credentials you already have in Pi (`/login` → TypeSafe). See
+[Semantic review](#semantic-review-jev-optional).
+
 ```bash
 pi install npm:@maolon/pi-relay      # wake transport (recommended, see "pi-relay" below)
 pi install npm:@maolon/pi-watcher
@@ -16,7 +21,10 @@ model turn and grows the context just to learn "still running". pi-watcher moves
 
 - **Facts first.** Explicit terminal states, exit markers, deadlines and silence are decided by code, not by a model.
 - **Quiet by default.** Routine progress only updates a status widget. Nothing enters the conversation.
-- **Wake on decisions.** Failure, a crossed deadline, a ready dependency or (optionally) a semantic blocker
+- **Semantic check with Jev (optional).** Per watch, Jev answers six bounded questions about a sanitized
+  evidence window: progress, blocker, needs a decision, repeating, claim vs evidence, enough context. Its scores
+  never override hard facts; they only raise or annotate episodes. Off unless you enable it.
+- **Wake on decisions.** Failure, a crossed deadline, a ready dependency or (optionally) a Jev-detected blocker
   becomes one episode and one wake. The host then inspects the fresh facts and responds.
 - **Honest state.** Unknown stays unknown. Delivery, withdrawal and completion are reported only with evidence.
 
