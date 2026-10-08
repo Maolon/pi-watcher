@@ -11,9 +11,13 @@ const root = resolve('.');
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 const work = mkdtempSync(join(tmpdir(), 'pw-pack-'));
 const fail = (msg) => { console.error(`package smoke FAILED: ${msg}`); process.exitCode = 1; };
+// When run from `npm publish` (prepublishOnly), npm passes publish-only config such as
+// npm_config_dry_run down to lifecycle scripts; nested `npm pack`/`npm install` must not inherit it.
+const childEnv = Object.fromEntries(Object.entries(process.env)
+  .filter(([k]) => !/^npm_config_(dry_run|provenance|access|tag|otp|workspaces?)$/i.test(k)));
 
 try {
-  const packed = JSON.parse(execFileSync('npm', ['pack', '--json', '--pack-destination', work], { cwd: root, encoding: 'utf8' }));
+  const packed = JSON.parse(execFileSync('npm', ['pack', '--json', '--pack-destination', work], { cwd: root, encoding: 'utf8', env: childEnv }));
   const files = packed[0].files.map((f) => f.path);
   const tgz = join(work, packed[0].filename);
 
@@ -43,7 +47,7 @@ try {
   const app = join(work, 'app');
   execFileSync('mkdir', ['-p', app]);
   writeFileSync(join(app, 'package.json'), JSON.stringify({ name: 'smoke', private: true, type: 'module' }));
-  execFileSync('npm', ['install', '--no-audit', '--no-fund', tgz, 'typebox'], { cwd: app, stdio: 'inherit' });
+  execFileSync('npm', ['install', '--no-audit', '--no-fund', tgz, 'typebox'], { cwd: app, stdio: 'inherit', env: childEnv });
   const entry = join(app, 'node_modules', ...pkg.name.split('/'), pkg.pi.extensions[0]);
   const mod = await import(pathToFileURL(entry).href);
   const tools = [];
