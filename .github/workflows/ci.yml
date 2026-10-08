@@ -41,3 +41,38 @@ jobs:
         run: npm run build
       - name: Package smoke (pack, leak scan, clean install, load with plain Node)
         run: npm run test:package
+
+  # Merging into main publishes to npm, so a PR into main must be a release or hotfix branch
+  # that carries a version npm has not seen and a matching CHANGELOG entry.
+  release-guard:
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Head branch is release/* or hotfix/*
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          case "$HEAD_REF" in
+            release/*|hotfix/*) ;;
+            *) echo "::error::PRs into main must come from release/* or hotfix/* (got $HEAD_REF)"; exit 1 ;;
+          esac
+      - name: Version is new on npm and listed in CHANGELOG
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          name=$(node -p 'require("./package.json").name')
+          version=$(node -p 'require("./package.json").version')
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "::error::$name@$version is already on npm; bump package.json before merging into main"; exit 1
+          fi
+          case "$HEAD_REF" in
+            release/*) [ "${HEAD_REF#release/}" = "$version" ] || { echo "::error::branch $HEAD_REF does not match package.json version $version"; exit 1; } ;;
+          esac
+          grep -q "^## \[$version\]" CHANGELOG.md || { echo "::error::CHANGELOG.md has no '## [$version]' entry"; exit 1; }

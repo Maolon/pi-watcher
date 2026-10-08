@@ -23,6 +23,20 @@ npm run test:package       # pack, leak-scan the tarball, install it, load the e
 Run `typecheck` and `test:unit` before every change you hand back. Run `test:package` when you touch
 `package.json`, the build, runtime asset paths, or the public entry points.
 
+## Branches and releases
+
+Git flow with `dev` as the integration branch and `main` as the release branch. Both are protected: changes land
+only through pull requests with green CI.
+
+- `feature/<topic>` from `dev`, PR back into `dev`.
+- `release/<x.y.z>` from `dev`: only the `package.json`/`package-lock.json` version bump and a `CHANGELOG.md`
+  entry. PR into `main`.
+- `hotfix/<topic>` from `main` for urgent fixes, with the version bump and CHANGELOG entry included. PR into `main`.
+- Merging into `main` publishes to npm: `release.yml` reruns CI, publishes the new version through trusted
+  publishing, and creates the `v<x.y.z>` tag and GitHub release. The `release-guard` CI job blocks PRs into `main`
+  that come from another branch, reuse a version already on npm, or lack a CHANGELOG entry.
+- After every release, open a PR from `main` into `dev` so the merge commit and version bump flow back.
+
 ## Layout
 
 ```
