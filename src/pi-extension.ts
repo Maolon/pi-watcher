@@ -27,6 +27,8 @@ import { renderWatcherWidget } from './engine/widget.js';
 import { runToolAction, type ToolParams } from './engine/tool-actions.js';
 import { DEFAULT_ATTENTION_TTL_MS, type AttentionNotice } from './engine/engine.js';
 import type { Json, RegisterCandidate, ActorContext } from './contracts/interfaces.js';
+import { PiRegistryJudge, type PiClassifierRegistry } from './jev/pi-registry.js';
+import { jevConsentState, setStoredJevConsent, consentFilePath } from './jev/consent.js';
 
 /** Minimal structural types: avoid a hard dependency on the pi runtime (the loader is Pi itself). */
 export interface PiToolCallContext {
@@ -40,6 +42,8 @@ export interface PiToolCallContext {
     setWidget?: (name: string, lines: string[]) => void;
   };
   sessionManager?: { getSessionId?: () => string; getSessionFile?: () => string };
+  /** Pi's model registry (Pi >= 1.1): classifier models such as Jev, with Pi-managed credentials */
+  modelRegistry?: PiClassifierRegistry;
 }
 
 export interface PiTool {
@@ -247,6 +251,11 @@ class SessionBackend implements WatcherBackend {
 
 export default function watcherExtension(pi: PiExtensionAPI, options: WatcherExtensionOptions = {}): void {
   let backend: WatcherBackend | null = null;
+  // Latest Pi model registry seen on any context: Jev resolves credentials from it lazily.
+  let latestRegistry: PiClassifierRegistry | undefined;
+  const noteRegistry = (ctx: PiToolCallContext | undefined): void => {
+    if (ctx?.modelRegistry && typeof ctx.modelRegistry.classify === 'function') latestRegistry = ctx.modelRegistry;
+  };
   let backendError: unknown = null;
   let sessionClosed = false;
   let widgetCtx: PiToolCallContext | null = null;
@@ -306,6 +315,7 @@ export default function watcherExtension(pi: PiExtensionAPI, options: WatcherExt
    * in which case we report it honestly and keep retrying lazily.
    */
   const runEnsure = async (ctx: PiToolCallContext): Promise<void> => {
+    noteRegistry(ctx);
     if (backend || sessionClosed) return;
     const opts = resolveOptions(ctx);
     try {
@@ -317,6 +327,7 @@ export default function watcherExtension(pi: PiExtensionAPI, options: WatcherExt
         allowedSourceIds: opts.allowedSourceIds,
         pollTickMs: opts.pollTickMs,
         relay: resolveRelay(),
+        piRegistry: () => latestRegistry,
         onAttention: n => { try { attentionSink?.(n); } catch { /* display failure does not block the engine */ } },
         onJudgment: j => {
           if (j.ownerSession && primarySid && j.ownerSession !== primarySid) return;
@@ -599,8 +610,28 @@ export default function watcherExtension(pi: PiExtensionAPI, options: WatcherExt
     }
   };
 
+  /** /watcher jev: which Jev source is active, and whether egress consent is granted. */
+  const jevStatusText = async (ctx: PiToolCallContext): Promise<string> => {
+    noteRegistry(ctx);
+    const consent = jevConsentState();
+    let source: string;
+    if (process.env?.JEV_API_KEY) {
+      source = 'JEV_API_KEY (direct TypeSafe API, jev-1.13.0)';
+    } else {
+      const status = latestRegistry ? await new PiRegistryJudge(() => latestRegistry).ready() : { ready: false, reason: 'this Pi version exposes no model registry to extensions' };
+      source = status.ready ? `Pi model registry: ${status.model}` : `none: ${status.reason ?? 'unavailable'}`;
+    }
+    return [
+      'pi-watcher semantic review (Jev, optional)',
+      `  model source: ${source}`,
+      `  egress consent: ${consent.granted ? 'granted' : 'not granted'} (${consent.source === 'env' ? 'JEV_CONSENT env' : consent.source === 'stored' ? consentFilePath() : 'default'})`,
+      '  enable: /login a Jev provider (or set TYPESAFE_API_KEY / JEV_API_KEY), then /watcher jev consent on;',
+      '  watches opt in per watch with semanticMode=shadow|active.'
+    ].join('\n');
+  };
+
   pi.registerCommand('watcher', {
-    description: 'pi-watcher panel: watches, health, open issues, and why no attention was sent. /watcher ack <episodeId> <received|investigating|defer|resolved|dismiss> [until ISO] — local owner response',
+    description: 'pi-watcher panel: watches, health, open issues, and why no attention was sent. /watcher ack <episodeId> <received|investigating|defer|resolved|dismiss> [until ISO] — local owner response. /watcher jev [status] | /watcher jev consent <on|off> — optional Jev semantic review',
     handler: async (args: string, ctx: PiToolCallContext) => {
       await ensureBackend(ctx);
       const be = backend;
@@ -609,6 +640,25 @@ export default function watcherExtension(pi: PiExtensionAPI, options: WatcherExt
         return;
       }
       const argv = (args ?? '').trim().split(/\s+/).filter(Boolean);
+      if (argv[0] === 'jev') {
+        // User-only: egress consent is never settable from the model-facing tool (I24, design 10.2).
+        if (argv[1] === 'consent' && (argv[2] === 'on' || argv[2] === 'off')) {
+          setStoredJevConsent(argv[2] === 'on');
+          const after = jevConsentState();
+          ctx.ui?.notify?.(
+            `pi-watcher: Jev egress consent ${argv[2] === 'on' ? 'granted' : 'revoked'} (stored in ${consentFilePath()})` +
+            (after.source === 'env' ? `; note: JEV_CONSENT in the environment overrides it (effective: ${after.granted ? 'on' : 'off'})` : ''),
+            'info'
+          );
+          return;
+        }
+        if (argv[1] && argv[1] !== 'status') {
+          ctx.ui?.notify?.('Usage: /watcher jev [status] | /watcher jev consent <on|off>', 'warning');
+          return;
+        }
+        ctx.ui?.notify?.(await jevStatusText(ctx), 'info');
+        return;
+      }
       if (argv[0] === 'ack') {
         // Local owner panel ACK (non-model path; does not claim relay delivery, design 11.7 + I05/I21)
         const [, episodeId, action, until, ...rest] = argv;

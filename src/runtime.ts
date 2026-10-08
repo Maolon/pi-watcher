@@ -19,6 +19,8 @@ import { WatcherRelaySource, deriveSourceId } from './relay/managed.js';
 import { SystemClock } from './util/clock.js';
 import type { Clock } from './util/clock.js';
 import { JevHttpClient } from './jev/index.js';
+import { PiRegistryJudge, type PiClassifierRegistry } from './jev/pi-registry.js';
+import { jevConsentState } from './jev/consent.js';
 import type { SemanticEngineConfig } from './engine/engine.js';
 import type { SemanticThresholds } from './engine/semantic.js';
 
@@ -35,7 +37,9 @@ export interface WatcherRuntimeOptions {
   probeRelay?: () => Promise<ProbeResult>;
   /** Inspection interval (default 5s; tests may lower it) */
   pollTickMs?: number;
-  /** Explicitly injected judge (tests); default: live Jev client if JEV_API_KEY is set, otherwise none (semantic review unavailable) */
+  /** Pi's model registry (`ctx.modelRegistry`), read live: lets Jev use credentials configured in Pi. */
+  piRegistry?: () => PiClassifierRegistry | undefined;
+  /** Explicitly injected judge (tests); default: JEV_API_KEY direct client, else Jev via piRegistry, else none */
   judge?: JudgePort;
   /** Consent for outbound data (required for live Jev judgment); default JEV_CONSENT=1 */
   semanticConsent?: boolean;
@@ -93,9 +97,13 @@ export async function startRuntime(options: WatcherRuntimeOptions): Promise<Watc
       }
     : DEFAULT_SEMANTIC_CONFIG;
   const envKey = typeof process !== 'undefined' ? process.env?.JEV_API_KEY : undefined;
-  const consent = options.semanticConsent ?? (typeof process !== 'undefined' && process.env?.JEV_CONSENT === '1');
+  // Egress consent is read live (env JEV_CONSENT, or the stored /watcher jev consent setting).
+  const consent: boolean | (() => boolean) = options.semanticConsent ?? (() => jevConsentState().granted);
+  // Judge: an explicit JEV_API_KEY uses the pinned direct client; otherwise Jev through Pi's
+  // model registry (TYPESAFE_API_KEY or a provider added via /login); otherwise none.
   const judge: JudgePort | undefined = options.judge
-    ?? (envKey ? new JevHttpClient({ apiKey: envKey }) : undefined);
+    ?? (envKey ? new JevHttpClient({ apiKey: envKey })
+      : options.piRegistry ? new PiRegistryJudge(options.piRegistry) : undefined);
 
   // V1 closed loop: embedded relay managed source (PI_WATCHER_RELAY=1 or options.relay)
   const relayEnabled = options.relay === true || (typeof options.relay === 'object' && options.relay !== undefined)
@@ -145,7 +153,7 @@ export async function startRuntime(options: WatcherRuntimeOptions): Promise<Watc
     judge,
     semantic: semanticConfig,
     semanticConsent: consent,
-    judgeRequiresConsent: !!(envKey && !options.judge),
+    judgeRequiresConsent: !options.judge && !!judge,
     delivery,
     onAttention: options.onAttention,
     onJudgment: options.onJudgment

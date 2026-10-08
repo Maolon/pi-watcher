@@ -29,7 +29,7 @@ export interface WatchEngineOptions {
   /** V2 semantic-layer config (defaults to policy-defaults) */
   semantic?: SemanticEngineConfig;
   /** Data egress consent (required for live Jev; Mock does not export locally, tests may set judgeRequiresConsent=false) */
-  semanticConsent?: boolean;
+  semanticConsent?: boolean | (() => boolean);
   /** Whether the judge is egress-type (needs consent); pass false for Mock local judgment */
   judgeRequiresConsent?: boolean;
   /** V1 closed loop: relay managed delivery port (static or live reference; upgraded after mid-session bind) */
@@ -94,7 +94,8 @@ export const DEFAULT_SEMANTIC_CONFIG: SemanticEngineConfig = {
  *  300s is not enough; also bounds the fast-close line. */
 export const DEFAULT_ATTENTION_TTL_MS = 1_800_000;
 
-const SEMANTIC_UNAVAILABLE = 'semantic review unavailable: no judge configured (set JEV_API_KEY); hard rules continue';
+const SEMANTIC_UNAVAILABLE = 'semantic review unavailable; hard rules continue';
+const NO_JEV_CREDENTIALS = 'no Jev credentials (set JEV_API_KEY or TYPESAFE_API_KEY, or add a Jev provider via /login)';
 
 /** Relay error codes that will not change on retry: record the control op as rejected. */
 const DETERMINISTIC_RELAY_CODES = new Set(['stale_scope_revision', 'invalid_state', 'invalid_payload', 'not_found', 'unauthorized', 'id_conflict']);
@@ -119,7 +120,7 @@ export class WatchEngine {
   private readonly judge?: JudgePort;
   private readonly displayNote: string;
   private readonly semanticConfig: SemanticEngineConfig;
-  private readonly semanticConsent: boolean;
+  private readonly semanticConsentRef: () => boolean;
   private readonly judgeRequiresConsent: boolean;
   private readonly deliveryRef: () => ManagedDeliveryPort | undefined;
   private readonly onAttention?: (notice: AttentionNotice) => void;
@@ -137,12 +138,18 @@ export class WatchEngine {
     this.judge = options.judge;
     this.displayNote = options.displayNote ?? 'local-display projection; not a relay delivery fact';
     this.semanticConfig = options.semantic ?? DEFAULT_SEMANTIC_CONFIG;
-    this.semanticConsent = options.semanticConsent ?? false;
+    const consent = options.semanticConsent ?? false;
+    this.semanticConsentRef = typeof consent === 'function' ? consent : () => consent;
     this.judgeRequiresConsent = options.judgeRequiresConsent ?? true;
     const d = options.delivery;
     this.deliveryRef = typeof d === 'function' ? d : () => d;
     this.onAttention = options.onAttention;
     this.onJudgment = options.onJudgment;
+  }
+
+  /** Consent is read live: the user may grant or revoke it mid-session (/watcher jev consent). */
+  private get semanticConsent(): boolean {
+    return this.semanticConsentRef();
   }
 
   private get delivery(): ManagedDeliveryPort | undefined {
@@ -399,18 +406,25 @@ export class WatchEngine {
     await this.checkDeliveryHealth(watchId, now);
 
     // 5.2 steps 3-5: semantic layer (call Jev only if the window changed and egress is permitted; shadow only records candidates)
-    if (this.judge && spec.policy.semanticMode !== 'off' && !isTerminalFact(snapshot)) {
-      await this.runSemanticPass(watchId, now, signal);
-    } else if (!this.judge && spec.policy.semanticMode !== 'off') {
-      // No judge configured (no JEV_API_KEY): say so instead of silently tracking facts only.
-      // A mock judge is never substituted outside tests; its scores are not model output.
-      this.store.transaction(tx => {
-        const fresh = tx.getWatchRow(watchId);
-        if (!fresh || fresh.snapshot.semantic?.error === SEMANTIC_UNAVAILABLE) return;
-        tx.updateWatch(watchId, {
-          snapshot: { ...fresh.snapshot, semantic: { ...(fresh.snapshot.semantic ?? { mode: spec.policy.semanticMode === 'active' ? 'active' : 'shadow', repeatingStreak: 0 }), error: SEMANTIC_UNAVAILABLE } }
-        }, now);
-      });
+    if (spec.policy.semanticMode !== 'off' && !isTerminalFact(snapshot)) {
+      // A judge may be configured but not usable yet (credentials resolved lazily from Pi).
+      const readiness = !this.judge
+        ? { ready: false, reason: NO_JEV_CREDENTIALS as string | undefined }
+        : this.judge.ready ? await this.judge.ready().catch(() => ({ ready: false, reason: 'judge readiness check failed' })) : { ready: true };
+      if (readiness.ready) {
+        await this.runSemanticPass(watchId, now, signal);
+      } else {
+        // Say so instead of silently tracking facts only. A mock judge is never substituted
+        // outside tests; its scores are not model output.
+        const reason = `${SEMANTIC_UNAVAILABLE}${'reason' in readiness && readiness.reason ? `: ${readiness.reason}` : ''}`;
+        this.store.transaction(tx => {
+          const fresh = tx.getWatchRow(watchId);
+          if (!fresh || fresh.snapshot.semantic?.error === reason) return;
+          tx.updateWatch(watchId, {
+            snapshot: { ...fresh.snapshot, semantic: { ...(fresh.snapshot.semantic ?? { mode: spec.policy.semanticMode === 'active' ? 'active' : 'shadow', repeatingStreak: 0 }), error: reason } }
+          }, now);
+        });
+      }
     }
 
     return {
@@ -498,7 +512,7 @@ export class WatchEngine {
         this.store.transaction(tx => tx.setBudgetReservationState(reservationId + '-root', 'unknown-cost'));
         const msg = e instanceof Error ? e.message : String(e);
         const auth = e instanceof Error && (e.name === 'JevAuthenticationError' || /401|403|authentication/i.test(msg));
-        if (auth) this.judgeDisabled = true;
+        if (auth && !this.judge?.ready) this.judgeDisabled = true; // host-resolved judges re-check credentials each pass
         this.store.transaction(tx => {
           const fresh = tx.getWatchRow(watchId);
           if (!fresh) return;

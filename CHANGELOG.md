@@ -12,6 +12,7 @@ First public release.
 - `watcher` tool with `watch-file`, `watch-check`, `register`, `list`, `inspect`, `check`, `pause` and `close`.
 - `/watcher` command: status panel and local episode acknowledgement.
 - Deterministic hard rules: explicit terminal states, business deadlines (raised once per checkpoint), silence detection and result cards.
-- Optional semantic review via Jev (`semanticMode: shadow | active`), gated by `JEV_API_KEY` and explicit `JEV_CONSENT=1`.
+- Optional semantic review via Jev (`semanticMode: shadow | active`). Credentials come from Pi's model registry (`/login` → TypeSafe, `TYPESAFE_API_KEY`, or another Jev provider) or `JEV_API_KEY`. Egress needs separate user consent: `/watcher jev consent on` or `JEV_CONSENT=1`.
+- `/watcher jev` status command.
 - Relay-delivered wakes through `@maolon/pi-relay` managed delivery: one scope per watch, durable control outbox, withdraw on pause/close with per-route results, and an idempotent host-response pump.
 - `pi-watcher` CLI: `doctor`, `qualify`, `relay-setup`, plus `producer`/`demo` fixtures.

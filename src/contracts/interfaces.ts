@@ -51,6 +51,8 @@ export interface Judgment { basis: Basis; model: string; questionSet: 'watcher-q
 export interface JudgePort {
   evaluate(basis: Basis, state: Json, signal: AbortSignal): Promise<Judgment>;
   chooseProbe(basis: Basis, state: Json, candidates: readonly Probe[], signal: AbortSignal): Promise<Id | 'none'>;
+  /** Optional availability check (e.g. credentials resolved lazily from the host); absent means always ready. */
+  ready?(): Promise<{ ready: boolean; reason?: string; model?: string }>;
 }
 export type AttentionReason = 'task.failed' | 'task.terminal' | 'deadline.exceeded' | 'decision.required'
  | 'blocker.unresolved' | 'progress.repeating' | 'claim.conflict' | 'evidence.insufficient' | 'dependency.ready' | 'monitor.degraded' | 'target.changed';

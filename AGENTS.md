@@ -32,7 +32,7 @@ src/engine/              WatchEngine (hard rules, episodes, semantic pass, deliv
 src/source/              evidence sources: agent-file, agent-check, task-status-v1
 src/storage/             SQLite WatchStore (WAL, FULL, FK), root lock, schema.sql
 src/relay/               pi-relay managed-delivery adapter and negotiation
-src/jev/                 Jev HTTP client, MockJudge, sanitizer, question set
+src/jev/                 Jev: direct HTTP client, Pi model-registry judge, consent store, sanitizer, question set, MockJudge (tests only)
 src/contracts/           ports and domain types, policy defaults
 tests/                   node:test suites, run with tsx
 scripts/                 build and package-smoke helpers
@@ -43,6 +43,7 @@ scripts/                 build and package-smoke helpers
 - English only: code, comments, strings, tests and docs.
 - Never commit local paths, usernames, session ids, credentials or real API keys. Test fixtures use obviously fake values.
 - Truth lives in the SQLite store; anything rendered (widget, result cards, toasts) is a display copy.
+- Never substitute a mock judge outside tests. Egress consent is user-only (`/watcher jev consent`, `JEV_CONSENT`), never a tool parameter.
 - Facts come before models: a Jev judgment never overrides a hard fact, never grants permission, and never causes a business action.
 - Only the relay managed path may wake the host. Never call `sendMessage` or add a second wake channel.
 - External I/O (relay calls, Jev requests) happens outside SQL transactions. Intents are written to the store first.

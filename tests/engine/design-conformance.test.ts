@@ -177,3 +177,46 @@ test('no judge configured: semanticMode is reported unavailable instead of silen
     fx.cleanup();
   }
 });
+
+test('Pi-registry judge: not ready -> actionable unavailable reason; ready -> judgment recorded with the served model', async () => {
+  const fx = makeFixture('pw-pireg-');
+  try {
+    writeStatus(fx.sourceRoot, 'running');
+    const { PiRegistryJudge } = await import('../../src/jev/pi-registry.js');
+    let available: Array<{ provider: string; id: string }> = [];
+    let t = 0;
+    const registry = {
+      async getAvailableOfType() { return available; },
+      async classify(model: { provider: string; id: string }, ctx: { questions: Record<string, unknown> }) {
+        return {
+          provider: model.provider, model: model.id, stopReason: 'stop' as const, usage: { input: 10 },
+          answers: Object.fromEntries(Object.keys(ctx.questions).map(k => [k, { type: 'bool', probability: 0.3 }]))
+        };
+      }
+    };
+    const judge = new PiRegistryJudge(() => registry, undefined, () => t);
+    const store = await WatchStore.open(fx.rootDir, { mode: 'embedded' });
+    const clock = new SystemClock();
+    const engine = new WatchEngine({
+      clock, store, judge, semantic: DEFAULT_SEMANTIC_CONFIG,
+      adapters: new Map<string, SourceAdapter>([['executor-local', new TaskStatusV1Adapter(fx.sourceRoot)]]),
+      semanticConsent: () => true, judgeRequiresConsent: true
+    });
+    const service = new WatchService({ clock, store, engine, negotiation: { status: 'unavailable', transport: 'local-display' as const, detail: 'test' } as never, allowedSourceIds: ['executor-local'] });
+    const w = await service.register('pr1', makeCandidate({ policy: { ...makeCandidate().policy, semanticMode: 'shadow' } }), makeActor());
+    await engine.inspectWatch(w.watchId);
+    assert.match(String(store.transaction(tx => tx.getWatchRow(w.watchId))!.snapshot.semantic?.error), /\/login/);
+    available = [{ provider: 'typesafe', id: 'jev-latest' }];
+    t += 61_000;
+    writeStatus(fx.sourceRoot, 'running');
+    await engine.inspectWatch(w.watchId);
+    const judgments = store.transaction(tx => tx.listJudgments(w.watchId, 10));
+    const sem = store.transaction(tx => tx.getWatchRow(w.watchId))!.snapshot.semantic!;
+    assert.equal(sem.error ?? null, null, 'error cleared once a judgment is accepted');
+    assert.ok(typeof sem.lastJudgedAtMs === 'number');
+    assert.ok(judgments.some(j => j.status === 'accepted' && j.model === 'typesafe/jev-latest'), 'accepted judgment records the model Pi actually served');
+    store.close();
+  } finally {
+    fx.cleanup();
+  }
+});

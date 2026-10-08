@@ -37,7 +37,7 @@ The watcher never runs, retries, kills or fixes the task it watches.
 
 ## Requirements
 
-- Pi 1.0 or newer (`@earendil-works/pi-coding-agent`)
+- Pi 1.0 or newer (`@earendil-works/pi-coding-agent`); Jev through Pi's `/login` needs Pi 1.1+
 - Node.js 22.16 or newer
 - macOS or Linux. Windows is not supported.
 - A native build toolchain for `fs-ext` (Python 3, `make`, a C++ compiler; on macOS the Xcode Command Line
@@ -138,7 +138,7 @@ degraded; they never mark the task as failed. The command text is stored as evid
 | `register` | Full spec: `run`, `group` (up to 16 members) and `obligation` targets |
 
 `/watcher` shows the panel; `/watcher ack <episodeId> <received|investigating|defer|resolved|dismiss> [until]`
-handles an episode locally.
+handles an episode locally; `/watcher jev` manages the optional semantic review (see below).
 
 ### Exit markers for `exec_command`
 
@@ -148,25 +148,45 @@ session watched automatically, set `PI_WATCHER_AUTO_EXEC=1` (off by default).
 
 ## Semantic review (Jev, optional)
 
+**Optional and off by default.** pi-watcher works fully without it: every watch is decided by facts (patterns,
+exit markers, deadlines, silence). Semantic review is an extra layer you opt into per watch.
+
 Some tasks cannot be judged by patterns alone: a training run that stalls, a fix loop that keeps repeating, a log
-that claims success while showing errors. With `semanticMode` set, the watcher asks
-[Jev](https://typesafe.ai), a fast discriminative model, six bounded questions about a sanitized evidence
-window (progress, unresolved blocker, needs host decision, repeating without new information, claim vs evidence
-conflict, context sufficiency).
+that claims success while showing errors. With `semanticMode` set on a watch, the watcher asks
+[Jev](https://typesafe.ai), TypeSafe's fast discriminative classifier (not a chat model), six bounded questions
+about a sanitized evidence window: progress, unresolved blocker, needs host decision, repeating without new
+information, claim vs evidence conflict, and context sufficiency.
 
 - `off` (default): facts only.
-- `shadow`: record judgments and show them in the widget; never wake.
+- `shadow`: record judgments and show them as toasts and widget hints; never wake.
 - `active`: a confident blocker, decision request, repeating loop or claim conflict opens an episode and can wake the session.
 
-Semantic review sends data to an external API, so it requires both:
+Enabling it takes two separate steps, because authentication and permission to send data are different decisions.
 
-```bash
-export JEV_API_KEY=...   # without a key, semantic review is reported as unavailable; facts still work
-export JEV_CONSENT=1     # explicit consent to send sanitized evidence windows
+**1. Authenticate Jev through Pi** (Pi 1.1+ ships Jev as a classifier model). Use any one of these:
+
+- In Pi, run `/login`, choose **Sign in with an API key**, then pick **TypeSafe** (or another provider that serves
+  Jev, such as OpenRouter or OpenCode). The credential lands in Pi's `auth.json` and the watcher picks it up,
+  even mid-session.
+- `export TYPESAFE_API_KEY=...` (Pi's standard variable for TypeSafe).
+- `export JEV_API_KEY=...` uses the watcher's own direct client, pinned to `jev-1.13.0`. It takes precedence over Pi's registry.
+
+When several Jev providers are configured, the watcher prefers TypeSafe direct, then OpenRouter, OpenCode,
+Cloudflare Workers AI and Vercel AI Gateway. Force one with `PI_WATCHER_JEV_MODEL=<provider>/<model>`, for example
+`openrouter/typesafe/jev-1.13`. The model that actually answered is recorded with every judgment.
+
+**2. Grant egress consent** (user only; the model cannot grant it):
+
+```
+/watcher jev consent on      # stored in ~/.pi/agent/pi-watcher.json; `off` revokes it
+/watcher jev                 # shows the active Jev source and the consent state
 ```
 
-Before anything is sent, credentials and tokens are redacted. Requests are budgeted per watch and per day, and
-hard facts always win over model scores. Redaction is best effort: for sensitive repositories, leave
+Alternatively set `JEV_CONSENT=1` (or `0` to force it off); the environment overrides the stored setting.
+
+Without credentials, a watch with `semanticMode` shows "semantic review unavailable" with the reason, and the facts
+keep working. Before anything is sent, credentials and tokens are redacted. Requests are budgeted per watch and
+per day, and hard facts always win over model scores. Redaction is best effort: for sensitive repositories, leave
 `semanticMode` off.
 
 ## Configuration
@@ -178,17 +198,21 @@ hard facts always win over model scores. Redaction is best effort: for sensitive
 | `PI_WATCHER_AUTO_BIND` | on | `0` disables automatic local binding |
 | `PI_WATCHER_EXEC_MARKER` | on | `0` disables `__EXEC_EXIT__` injection |
 | `PI_WATCHER_AUTO_EXEC` | off | `1` auto-watches long-running exec sessions |
-| `JEV_API_KEY` | unset | Enables semantic review |
-| `JEV_CONSENT` | unset | `1` permits sending sanitized evidence to Jev |
-| `JEV_BASE_URL` | `https://api.typesafe.ai` | Jev endpoint |
-| `JEV_TIMEOUT_MS` | `10000` | Per-request timeout |
+| `TYPESAFE_API_KEY` | unset | Pi's TypeSafe credential; enables Jev through Pi (same as `/login` → TypeSafe) |
+| `JEV_API_KEY` | unset | Watcher's direct Jev client (`jev-1.13.0`); takes precedence over Pi's registry |
+| `PI_WATCHER_JEV_MODEL` | auto | Force a Pi Jev model, e.g. `openrouter/typesafe/jev-1.13` |
+| `JEV_CONSENT` | unset | `1`/`0` overrides the stored `/watcher jev consent` setting |
+| `PI_WATCHER_CONFIG` | `~/.pi/agent/pi-watcher.json` | Where `/watcher jev consent` is stored |
+| `JEV_BASE_URL` | `https://api.typesafe.ai` | Endpoint for the direct client |
+| `JEV_TIMEOUT_MS` | `10000` | Per-request timeout for the direct client |
 
 ## Data and privacy
 
 - All watcher state stays on your machine: SQLite (WAL, `synchronous=FULL`) under `<cwd>/.pi-watcher/`.
 - Wakes travel through pi-relay's store under the relay home on the same machine.
 - Shadow-mode judgments are shown as session toasts and widget hints, never as conversation messages.
-- Only with `JEV_API_KEY` and `JEV_CONSENT=1` does a sanitized, size-bounded evidence window leave the machine.
+- Only with Jev credentials **and** egress consent (`/watcher jev consent on` or `JEV_CONSENT=1`) does a sanitized,
+  size-bounded evidence window leave the machine, and only for watches with `semanticMode` set.
 - `watch-file` reads the paths you or the model declare. `watch-check` runs the declared command as your user.
   Both are as powerful as the session itself; review what the model registers.
 
@@ -210,9 +234,9 @@ pi-watcher qualify                         # native dependency / storage qualifi
   per-session isolation, relay wakes with withdraw-on-pause, idempotent host-response handling. Covered by the
   offline suite, including end-to-end tests against the real pi-relay libraries.
 - **Experimental:** semantic review thresholds are initial values, not calibrated results. Use `shadow` before `active`.
-- **Not yet:** a standalone watcher service (the watcher runs inside the Pi session), per-owner consent prompts for
-  relay binding and Jev egress (consent is environment-based today), fork/tree-navigation holds, artifact-digest
-  binding for checks, evidence retention limits, and the `update` action.
+- **Not yet:** a standalone watcher service (the watcher runs inside the Pi session), an interactive consent prompt
+  for relay binding (it is local trust today), fork/tree-navigation holds, artifact-digest binding for checks,
+  evidence retention limits, and the `update` action.
 
 ## Development
 

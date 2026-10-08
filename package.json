@@ -65,7 +65,7 @@
     "test": "tsx --test tests/jev/*.test.ts tests/storage/*.test.ts tests/source/*.test.ts tests/relay/*.test.ts tests/engine/*.test.ts tests/*.test.ts",
     "test:unit": "tsx --test tests/storage/*.test.ts tests/source/*.test.ts tests/relay/*.test.ts tests/engine/*.test.ts",
     "test:jev": "tsx --test tests/jev/*.test.ts",
-    "test:jev:unit": "tsx --test tests/jev/sanitizer.test.ts tests/jev/mock-judge.test.ts tests/jev/client-unit.test.ts",
+    "test:jev:unit": "tsx --test tests/jev/sanitizer.test.ts tests/jev/mock-judge.test.ts tests/jev/client-unit.test.ts tests/jev/pi-registry.test.ts",
     "test:jev:live": "tsx --test tests/jev/client-live.test.ts",
     "test:package": "node scripts/package-smoke.mjs",
     "qualify": "tsx src/cli.ts qualify",
