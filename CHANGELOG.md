@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/). Before 1.0, minor versions may break.
 
+## [Unreleased]
+
+### Changed
+- Attention toasts follow the outcome: a succeeded `task.terminal` notice shows at `info`; failures, cancellations, unknown exits, deadlines, semantic candidates and failed relay wakes stay at `warning`.
+- Git flow: `dev` integration branch, release and hotfix PRs into `main` publish to npm.
+
 ## [0.1.2] - 2026-10-08
 
 ### Changed
