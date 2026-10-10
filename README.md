@@ -77,8 +77,8 @@ pi-watcher uses [`@maolon/pi-relay`](https://www.npmjs.com/package/@maolon/pi-re
 | **Library** | The watcher publishes attentions, withdraws them on pause/close and reads host responses through pi-relay's managed-delivery source API (`@maolon/pi-relay/source`, `/consumer`, `/protocol`). | A regular npm dependency of pi-watcher, installed automatically. |
 | **Pi extension** | Runs inside your Pi session as the delivery target: receives the wake, injects it when the session is idle, and gives the model the `relay_respond` tool. | Install it yourself: `pi install npm:@maolon/pi-relay`. |
 
-**Compatibility.** pi-watcher 0.1.x requires pi-relay **0.2.x**: the `^0.2.0` dependency for the library, and
-0.2.x for the extension you install. Both sides share the relay home on disk (`~/.pi/relay`, or `PI_RELAY_HOME`),
+**Compatibility.** pi-watcher 0.1.x requires pi-relay **0.2.x**: the `^0.2.1` dependency for the library (since
+pi-watcher 0.1.5), and 0.2.x for the extension you install (0.2.1 or later recommended). Both sides share the relay home on disk (`~/.pi/relay`, or `PI_RELAY_HOME`),
 so keep them on the same minor version.
 
 **Without the pi-relay extension**, the watcher still works, but in *local display* mode:
