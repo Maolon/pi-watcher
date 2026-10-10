@@ -74,7 +74,7 @@
     "prepublishOnly": "npm run typecheck && npm run build && npm run test:package"
   },
   "dependencies": {
-    "@maolon/pi-relay": "^0.2.0",
+    "@maolon/pi-relay": "^0.2.1",
     "better-sqlite3": "13.0.3",
     "fs-ext": "2.1.1"
   },
