@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-10-09
+
+### Changed
+- Requires `@maolon/pi-relay` `^0.2.1`. That release keeps the local relay path from wedging: the managed source client reconnects after a dead socket instead of failing forever, staged managed packets are never pushed to a binding revoked while they waited, and the relay store keeps a bounded idempotency window instead of refusing operations once full.
+
 ## [0.1.4] - 2026-10-08
 
 ### Added
