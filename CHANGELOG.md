@@ -6,6 +6,9 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- Closing or pausing a watch now stops its pending attention from waking the session. Requires `@maolon/pi-relay` `^0.2.3` here and the pi-relay extension 0.2.3 or later in Pi: that release lets local standing bindings check whether an attention was withdrawn before delivering it. Before, an attention the agent had already handled by closing the watch was still delivered later, one stale wake per watch.
+
 ## [0.1.5] - 2026-10-09
 
 ### Changed
