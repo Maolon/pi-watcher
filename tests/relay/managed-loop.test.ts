@@ -117,9 +117,8 @@ test('relay closed loop: setup -> bind -> provision -> publish -> guard allow ->
 
     // 7) Target pump: guard allow -> intent -> invoke -> submitted -> recorded
     let deliveredEvent: { options?: { consumerProfileId?: string } } | null = null;
-    const pumped = await target.managed.pumpManaged(idle, async packet => {
+    const pumped = await target.managed.pumpManaged(() => idle, async packet => {
       deliveredEvent = packet as typeof deliveredEvent;
-      return { evidence: 'runtime-entry' };
     });
     assert.ok(pumped.claimed >= 1, 'pump claims the managed delivery');
     assert.equal((deliveredEvent as { options?: { consumerProfileId?: string } } | null)?.options?.consumerProfileId, 'pi-watcher-host');

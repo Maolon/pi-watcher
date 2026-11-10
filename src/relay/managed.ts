@@ -265,10 +265,12 @@ export class WatcherRelaySource implements ManagedDeliveryPort {
       requestedMode: 'resume',
       policy: {
         admission: 'auto',
-        // Local-domain transition policy (2026-09-21): bindLocal's standing registration does not yet issue a target->source
-        // proof credential (pi-relay internal.source.proof only recognizes the invite principal);
-        // requireCurrentScope:true would make the pump defer forever (observed in production). Same-uid in the local domain
-        // can already read the source store, so a wider staleness window is accepted; revert to true once the official standing proof credential lands.
+        // Stale wakes are fenced by the relay scope/tombstone proof: before a claim the target asks the source whether the
+        // event was withdrawn or its scope advanced, and cuts the delivery if so. Standing (local) bindings can fetch that
+        // proof since pi-relay 0.2.3, on both sides: this library (source) and the installed extension (target).
+        // requireCurrentScope stays false on purpose: this file is read by whatever extension version the user installed,
+        // and an extension older than 0.2.3 cannot fetch the proof, so `true` would defer every wake forever there.
+        // With false, an unreachable proof only widens the staleness window instead of silencing the watcher.
         requireCurrentScope: false,
         timeoutMs: 1000
       }

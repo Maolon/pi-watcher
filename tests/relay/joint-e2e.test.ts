@@ -127,9 +127,8 @@ test('joint e2e: sentinel audience + retry recovery + delivery guard + idle clai
 
     // 4) idle pump claim (quiet-session external-arrival semantics, target behavior after the delivery-guard fix)
     let wake: { event?: { id?: string } } | null = null;
-    const pumped = await targetHost.managed.pumpManaged(idle, async packet => {
+    const pumped = await targetHost.managed.pumpManaged(() => idle, async packet => {
       wake = packet as { event?: { id?: string } };
-      return { evidence: 'runtime-entry' };
     });
     assert.ok(pumped.claimed >= 1, 'idle session claims the external arrival');
     assert.equal((wake as { event?: { id?: string } } | null)?.event?.id, att.eventId, 'wake is that attention');
