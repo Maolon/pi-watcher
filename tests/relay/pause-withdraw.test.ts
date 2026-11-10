@@ -109,9 +109,8 @@ test('pause withdraws an unclaimed managed attention; the target pump fences it;
     const sourceHost = (relay as unknown as { host: { managed: { scopeProof(b: string, ids: string[]): unknown } } }).host;
     const proof = async (b: string, ids: string[]) => sourceHost.managed.scopeProof(b, ids) as never;
     let woke = false;
-    await targetHost.managed.pumpManaged(idle, async () => {
+    await targetHost.managed.pumpManaged(() => idle, async () => {
       woke = true;
-      return { evidence: 'runtime-entry' };
     }, proof);
     assert.equal(woke, false, 'paused watch must not wake the host');
     const deliveries = (targetHost.managed as unknown as {
@@ -123,9 +122,8 @@ test('pause withdraws an unclaimed managed attention; the target pump fences it;
     const resumed = await service.control('resume-1', spec.watchId, afterPause.controlRevision, 'resume', 'user resumed', actor) as Record<string, unknown>;
     assert.equal((resumed.sourceFence as { status: string }).status, 'applied');
     assert.deepEqual(store.transaction(tx => tx.getWatchRow(spec.watchId))!.snapshot.relayScope, { scopeId: scope!.scopeId, revision: 3, state: 'active' });
-    await targetHost.managed.pumpManaged(idle, async () => {
+    await targetHost.managed.pumpManaged(() => idle, async () => {
       woke = true;
-      return { evidence: 'runtime-entry' };
     }, proof);
     assert.equal(woke, false, 'resume does not re-arm a withdrawn attention');
 
@@ -133,6 +131,83 @@ test('pause withdraws an unclaimed managed attention; the target pump fences it;
     const replay = await service.control('pause-1', spec.watchId, row.controlRevision, 'pause', 'user paused', actor) as Record<string, unknown>;
     assert.equal(replay.controlRevision, paused.controlRevision);
     assert.equal((replay.sourceFence as { status: string }).status, 'applied');
+  } finally {
+    try { await targetHost?.close(); } catch { /* best effort */ }
+    try { await relay?.close(); } catch { /* best effort */ }
+    try { store?.close(); } catch { /* best effort */ }
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+/**
+ * Production shape of the same cut: a local standing binding (no invite), the declared consumer
+ * policy (requireCurrentScope: false), and the proof fetched over the real target->source transport
+ * instead of being injected. The agent reads the result and closes the watch while its turn is still
+ * running; the attention that is still queued for the next idle moment must not wake the session.
+ */
+test('close on a standing binding: the queued attention is cut through the real scope proof, no stale wake', async () => {
+  const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pw-close-standing-')));
+  const relayHome = path.join(tmp, 'relay-home');
+  let relay: WatcherRelaySource | null = null;
+  let targetHost: Awaited<ReturnType<typeof createTarget>> | null = null;
+  let store: WatchStore | null = null;
+  try {
+    relay = await WatcherRelaySource.open(path.join(tmp, 'watcher-relay'), { relayHome, realm: 'local' });
+    relay.ensureConsumerDeclaration();
+    targetHost = await createTarget({ home: relayHome, realm: 'local', fingerprint: createHash('sha256').update('pw-close-standing').digest('hex') });
+    const bound = await targetHost.bindLocal({ sourceId: 'pi-watcher', channelId: 'W' });
+    assert.equal(bound.armed, true, 'standing binding armed');
+    targetHost.managed.registerConsumer({
+      profileId: 'pi-watcher-host',
+      eventManifestDigest: 'decl-manifest',
+      responseManifestDigest: 'resp-manifest',
+      guardImplementationId: 'declared-guard',
+      timeoutMs: 1000,
+      requireCurrentScope: false
+    }, async () => ({
+      decision: 'allow', reasonCode: 'CURRENT', guardEpoch: 1,
+      validUntil: new Date(Date.now() + 3_600_000).toISOString()
+    }));
+    relay.provision();
+
+    const sourceRoot = path.join(tmp, 'sources');
+    await runScenario(sourceRoot, target, scenarioSteps('build-failure', 10));
+    store = await WatchStore.open(path.join(tmp, 'watcher-state'), { mode: 'embedded' });
+    const clock = new ManualClock(Date.now() - 55_000);
+    const engine = new WatchEngine({
+      clock, store,
+      adapters: new Map([['executor-local', new TaskStatusV1Adapter(sourceRoot)]]),
+      delivery: relay
+    });
+    const service = new WatchService({
+      clock, store, engine,
+      negotiation: negotiationFromRelaySource(relay),
+      allowedSourceIds: ['executor-local'],
+      delivery: relay
+    });
+    const actor = makeActor();
+    const spec = await service.register('close-standing-1', makeCandidate({
+      policy: { ...makeCandidate().policy, transport: 'relay', semanticMode: 'off', attentionTtlMs: 120_000 }
+    }), actor);
+
+    await engine.inspectWatch(spec.watchId);
+    const att = store.transaction(tx => tx.listOutboxByWatch(spec.watchId, 10)).find(o => o.eventType === 'watcher.attention.v1')!;
+    assert.equal(att.admission, 'source-staged');
+    const deliveriesOf = () => (targetHost!.managed as unknown as {
+      managedDeliveries(): Array<{ eventId: string; state: string }>;
+    }).managedDeliveries().filter(d => d.eventId === att.eventId);
+    assert.ok(deliveriesOf().some(d => d.state === 'pending'), 'attention is queued at the target before the close');
+
+    const row = store.transaction(tx => tx.getWatchRow(spec.watchId))!;
+    await service.control('close-1', spec.watchId, row.controlRevision, 'close', 'result already read', actor);
+
+    const host = targetHost;
+    let woke = false;
+    await host.managed.pumpManaged(() => idle, async () => {
+      woke = true;
+    }, (b: string, ids: string[]) => host.managedScopeProof(b, ids) as never);
+    assert.equal(woke, false, 'a closed watch must not wake the host');
+    assert.ok(deliveriesOf().every(d => d.state === 'withdrawn'), `delivery cut at target (${deliveriesOf().map(d => d.state).join(',')})`);
   } finally {
     try { await targetHost?.close(); } catch { /* best effort */ }
     try { await relay?.close(); } catch { /* best effort */ }
