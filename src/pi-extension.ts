@@ -725,71 +725,35 @@ export default function watcherExtension(pi: PiExtensionAPI, options: WatcherExt
     name: 'watcher',
     label: 'Watcher',
     description:
-      'Fact-driven monitoring for long-running tasks — the replacement for polling loops, sleep waits, and scheduled checks. ' +
-      'Actions: watch-file/watch-check/register/list/inspect/check/pause/close/ack/update. watch-file tails an agent-declared file ' +
-      '(e.g. the log_path of a running exec session, a build log, a report) with declared okPattern/failPattern as terminal evidence; ' +
-      'watch-check runs an agent-declared bounded command (CI/cloud/remote state) on a fixed interval with a declared verdict mapping. ' +
-      'Watches observe task facts (run state, deadlines, silence, ' +
-      'obligations, dependencies) and optionally invoke Jev (a fast, lightweight discriminator model) for semantic progress monitoring. ' +
-      'list returns active watches by default with a terminalCount summary of finished (closed/expired) history; pass includeClosed=true to list full history. ' +
-      'Wakes this session via pi-relay only when a fact requires a decision. ' +
-      'Each session runs its own watcher runtime under .pi-watcher/sessions/<id>/ — no cross-session coupling, plugin upgrades never skew. ' +
-      'Never executes business actions, never arms, binds, or force-wakes. ack requires a relay delivery credential ' +
-      '(returns NO_DELIVERY while the relay managed path is not negotiated).',
-    promptSnippet: 'watcher: fact-driven monitoring for long-running tasks — replaces polling loops, sleep waits, and scheduled checks; wakes this session via pi-relay when facts change',
+      'Monitor long-running tasks (read-only); wakes session via pi-relay on terminal/stuck facts. ' +
+      'Actions: watch-file, watch-check, register, list, inspect, check, pause, close.',
+    promptSnippet: 'watcher: monitor long-running tasks (file logs or check commands); wakes via pi-relay on facts',
     promptGuidelines: [
-      'Prefer watcher over any polling pattern: whenever you would run a watch/sleep loop, retry with delays, schedule a future check ("check back in 10 minutes"), or repeatedly poll a running unified-exec session with write_stdin, register a watch instead — it observes the task, tracks deadlines and silence, and wakes this session via pi-relay only when a fact requires a decision. To check progress on a watched task at any time, call watcher(action: "inspect") or watcher(action: "check") — it returns the live status, latest output tail, and health without blocking. Never busy-poll the underlying process with write_stdin, sleep loops, or ad-hoc terminal reads.',
-      'You decide what to watch — point the watcher at durable evidence. To watch a long-running shell command, first run it with exec_command (it yields session_id + log_path once it outlives the attach window), then call watcher action=watch-file with path=<that log_path>, okPattern="__EXEC_EXIT__:0", failPattern="__EXEC_EXIT__:-?[1-9]" (the exit marker is auto-injected into your command). Growth is tracked as progress, the declared patterns fire terminal facts, silence/deadline surface stuck tasks, and terminal facts auto-close after the attention TTL. By default semanticMode is "off" (pure fact tracking); pass semanticMode="shadow" to have Jev review progress/loops/blockers in the background without waking, or "active" to have Jev wake this session via relay when an impasse or decision-required blocker occurs. Check progress anytime with watcher inspect/check (live status, output tail, health) — never write_stdin-poll a watched session. Use the full action=register ONLY for custom policy (group targets, specific deadlines/silence budgets beyond the simple overrides).',
-      'For multi-step pipelines (long sequences of short commands), do NOT shepherd each step with attached waits — run the whole sequence as ONE long-running command or script (append `; echo __EXEC_EXIT__:$?`) and watch its log file instead.',
-      'When the user asks to monitor, watch, or keep an eye on a background task (builds, tests, training runs, long jobs), call watcher with action=watch-file on its log/output file, or action=watch-check when there is no local file — never spawn while/sleep loops or detached pollers.',
-      'Use watcher action=watch-file for any state that materializes as a growing file: exec session logs (path from the exec result), build/test output redirected to a file, generated reports and artifacts. Declare the verdict honestly: okPattern (success) and failPattern (failure, checked first) on the file tail are the ONLY content-terminal facts — without patterns you get progress/silence facts only, and a missing or rotated file degrades health honestly (never a fabricated verdict).',
-      'Use Jev lightweight semantic progress monitoring (semanticMode="shadow"|"active") when task status cannot be judged by exit code or pattern alone — e.g. long builds, model training, migrations, multi-step pipelines, or flaky test suites. Jev is a fast, lightweight System 1 model (~300ms latency, zero autoregressive LLM overhead) that semantically inspects log windows for forward progress, repeating loops without new info, and unresolved blockers. Use "shadow" for quiet background review (status visible in inspect/widget) or "active" to wake this session via relay when an impasse or blocker occurs.',
-      'Use watcher action=watch-check to watch any remote or file-less state you cannot tail locally — CI build conclusion (gh run view), cloud resource readiness (kubectl/gcloud), service health (curl). Declare the verdict honestly: okPattern/failCodes/failPattern map outcomes to terminal facts; unmapped nonzero exits are pending (not failure); exit 126/127/timeout mean the CHECK is broken (degraded, never a task verdict). The watcher runs the command on a fixed interval — do NOT run it yourself in a loop. For blocking waits (kubectl wait) prefer exec_command + a log file + action=watch-file.',
-      'Call watcher with action=inspect to query or report the status of any registered watch — it holds the authoritative fact base (observations, episodes, health); do not guess the state and do not probe with ad-hoc bash when a watch exists.',
-      'When a pi-relay managed delivery wakes this session: call watcher inspect for that watch first, report or decide using the fresh facts, then call relay_respond (received/investigating/defer/resolved/dismiss) with the deliveryRef to close the loop.',
-      'When the user cancels, abandons, or changes a monitored task, call watcher with action=pause or action=close so stale watches stop generating attention.',
-      'Use watches for obligations and dependencies too: kind=obligation watches fire on facts (dependencies terminal/succeeded, readyWhen) instead of timers, and defer responses resurface the same episode at the snooze deadline without re-waking.',
+      'Prefer watcher over sleep/polling loops, scheduled retries, or write_stdin polling for long tasks and multi-step scripts; check status via inspect/check (not ad-hoc bash) and pause/close cancelled watches.',
+      'Use watch-file for growing files (exec_command logs: path=<log_path>, okPattern="__EXEC_EXIT__:0", failPattern="__EXEC_EXIT__:-?[1-9]"; marker auto-injected), watch-check for remote/file-less state (CI/cloud/health), and register only for custom policy/obligations; add semanticMode="shadow"|"active" for Jev review beyond patterns.',
+      'On pi-relay wake: call watcher inspect first, act/report from fresh facts, then call relay_respond with deliveryRef.'
     ],
     parameters: Type.Object({
-      action: Type.Union([
-        Type.Literal('watch-file'),
-        Type.Literal('watch-check'),
-        Type.Literal('register'),
-        Type.Literal('list'),
-        Type.Literal('inspect'),
-        Type.Literal('check'),
-        Type.Literal('ack'),
-        Type.Literal('pause'),
-        Type.Literal('close'),
-        Type.Literal('update')
-      ]),
-      path: Type.Optional(Type.String({ description: 'For action=watch-file: absolute path of the file to tail (e.g. the log_path from an exec_command result, a build log, a report). Relative paths resolve against the session cwd' })),
-      okPattern: Type.Optional(Type.String({ description: 'RegExp meaning terminal success. watch-file: matched against the file tail (for an exec log: __EXEC_EXIT__:0). watch-check: matched against command stdout (for CLIs that always exit 0; without it, exit 0 = succeeded)' })),
-      failPattern: Type.Optional(Type.String({ description: 'RegExp meaning terminal failure, checked before okPattern. watch-file: file tail (for an exec log: __EXEC_EXIT__:-?[1-9]). watch-check: command stdout, even when exit 0' })),
-      cmd: Type.Optional(Type.String({ description: 'For action=watch-check: the bounded check command to run periodically (max 2000 chars; NO secrets — it is persisted as evidence). Exit code/stdout carries the verdict per okPattern/failPattern/failCodes; non-mapped nonzero exits mean pending, not failure' })),
-      intervalMs: Type.Optional(Type.Integer({ description: 'For action=watch-check: fixed run interval (default 30000, clamped 1000-600000)' })),
-      timeoutMs: Type.Optional(Type.Integer({ description: 'For action=watch-check: per-run timeout with kill (default 10000, clamped 1000-30000)' })),
-      failCodes: Type.Optional(Type.Array(Type.Integer(), { description: 'For action=watch-check: exit codes meaning explicit failure (default: only patterns decide failure)' })),
-      objective: Type.Optional(Type.String({ description: 'For action=watch-file/watch-check: one-line purpose of the watched target' })),
-      deadlineAt: Type.Optional(Type.String({ description: 'For action=watch-file/watch-check: optional business deadline (ISO)' })),
-      maxSilenceMs: Type.Optional(Type.Integer({ description: 'For action=watch-file/watch-check: optional silence budget (default 600000 for files, 1800000 for checks)' })),
-      includeClosed: Type.Optional(Type.Boolean({
-        description:
-          'For action=list: include terminal (closed/expired) watches in the response. ' +
-          'Default returns only active/paused watches plus a terminalCount summary — finished watches are history, not decision inputs.'
+      action: Type.Enum(['watch-file', 'watch-check', 'register', 'list', 'inspect', 'check', 'ack', 'pause', 'close', 'update']),
+      path: Type.Optional(Type.String({ description: 'watch-file: path to tail (relative -> cwd)' })),
+      okPattern: Type.Optional(Type.String({ description: 'RegExp: terminal success (tail/stdout; check defaults exit 0)' })),
+      failPattern: Type.Optional(Type.String({ description: 'RegExp: terminal failure (checked before okPattern)' })),
+      cmd: Type.Optional(Type.String({ description: 'watch-check: bounded cmd (<=2000c, no secrets; unmapped nonzero=pending)' })),
+      intervalMs: Type.Optional(Type.Integer({ description: 'watch-check: interval ms (30000; 1000-600000)' })),
+      timeoutMs: Type.Optional(Type.Integer({ description: 'watch-check: timeout ms (10000; 1000-30000)' })),
+      failCodes: Type.Optional(Type.Array(Type.Integer(), { description: 'watch-check: failure exit codes' })),
+      objective: Type.Optional(Type.String({ description: 'watch-file/check: one-line purpose' })),
+      deadlineAt: Type.Optional(Type.String({ description: 'watch-file/check: ISO deadline' })),
+      maxSilenceMs: Type.Optional(Type.Integer({ description: 'watch-file/check: silence ms (600000/1800000)' })),
+      includeClosed: Type.Optional(Type.Boolean({ description: 'list: include closed/expired (default false)' })),
+      semanticMode: Type.Optional(Type.Enum(['off', 'shadow', 'active'], {
+        description: 'Jev semantic review: off (default), shadow (quiet), active (wake on blocker)'
       })),
-      semanticMode: Type.Optional(Type.Union([Type.Literal('off'), Type.Literal('shadow'), Type.Literal('active')], {
-        description:
-          'For action=watch-file/watch-check: semantic progress monitoring via Jev (a fast, lightweight discriminator model, not an LLM). ' +
-          'off (default): pure fact tracking. ' +
-          'shadow: lightweight model semantically monitors output logs in background for progress, repeating loops, and blockers without waking. ' +
-          'active: lightweight model monitors semantic progress and wakes this session via pi-relay when an impasse, repeating loop, or host decision is needed.'
-      })),
-      requestId: Type.Optional(Type.String({ description: 'Idempotency key (required for register/pause/close)' })),
-      watchId: Type.Optional(Type.String({ description: 'Watch id starting with w- (required for inspect/check/pause/close)' })),
-      expectedControlRevision: Type.Optional(Type.Integer({ description: 'Current controlRevision of the watch (required for check/pause/close)' })),
-      reason: Type.Optional(Type.String({ description: 'Human-readable reason (required for pause/close)' })),
-      candidate: Type.Optional(Type.Record(Type.String(), Type.Unknown(), { description: 'RegisterCandidate spec (required for register): target, mission, policy, limits' }))
+      requestId: Type.Optional(Type.String({ description: 'Idempotency key (writes/check)' })),
+      watchId: Type.Optional(Type.String({ description: 'Watch id w-... (inspect/check/pause/close)' })),
+      expectedControlRevision: Type.Optional(Type.Integer({ description: 'controlRevision (check/pause/close)' })),
+      reason: Type.Optional(Type.String({ description: 'Reason (pause/close)' })),
+      candidate: Type.Optional(Type.Record(Type.String(), Type.Unknown(), { description: 'register: {target, mission, policy, limits}' }))
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       await ensureBackend(ctx);

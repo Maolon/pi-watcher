@@ -768,3 +768,25 @@ test('extension: /watcher cancel closes every active/paused watch of this sessio
     await fs.rm(tmp, { recursive: true, force: true });
   }
 });
+
+test('extension: startup context budget — watcher schema + prompt guidelines stay compact and preserve core routing rules', () => {
+  const pi = new FakePi();
+  watcherExtension(pi, { relay: false });
+  const tool = pi.tools.find(t => t.name === 'watcher');
+  assert.ok(tool, 'watcher tool registered');
+
+  const schemaChars = JSON.stringify({ name: tool.name, description: tool.description, parameters: tool.parameters }).length;
+  const snippetChars = tool.promptSnippet.length;
+  const guidelinesText = tool.promptGuidelines.join('\n');
+  const totalChars = schemaChars + snippetChars + guidelinesText.length;
+
+  assert.ok(tool.promptGuidelines.length <= 3, `expected <=3 promptGuidelines, got ${tool.promptGuidelines.length}`);
+  assert.ok(totalChars <= 3200, `expected watcher startup context <=3200 chars (~800 tok), got ${totalChars} chars`);
+
+  // Core routing signals must remain present
+  assert.match(guidelinesText, /watch-file/);
+  assert.match(guidelinesText, /watch-check/);
+  assert.match(guidelinesText, /__EXEC_EXIT__:0/);
+  assert.match(guidelinesText, /watcher inspect/);
+  assert.match(guidelinesText, /relay_respond/);
+});
